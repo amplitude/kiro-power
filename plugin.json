@@ -1,0 +1,24 @@
+{
+  "$schema": "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json",
+  "name": "amplitude",
+  "version": "1.0.0",
+  "description": "Analyze product data, experiments, and user behavior with Amplitude. Query charts, dashboards, and metrics through natural language, evaluate A/B test results and feature flags, search session replays, and instrument Amplitude SDKs with a clean event taxonomy.",
+  "author": {
+    "name": "Amplitude",
+    "url": "https://amplitude.com"
+  },
+  "homepage": "https://amplitude.com/docs/amplitude-ai/amplitude-mcp",
+  "repository": "https://github.com/amplitude/kiro-power",
+  "license": "MIT",
+  "keywords": [
+    "amplitude",
+    "product analytics",
+    "experiments",
+    "a/b testing",
+    "feature flags",
+    "session replay",
+    "event tracking",
+    "funnels",
+    "retention"
+  ]
+}
