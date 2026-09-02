@@ -4,7 +4,7 @@ description: "Instrument applications with Amplitude Analytics SDKs — install 
 license: "MIT"
 metadata:
   author: "Amplitude"
-  version: "1.0.0"
+  version: "1.1.0"
 ---
 
 # Instrument Amplitude Analytics
@@ -25,13 +25,26 @@ This skill covers adding and maintaining Amplitude instrumentation in applicatio
 - [ ] For taxonomy checks and validation: the Amplitude MCP server connected and authenticated (configured by this power).
 - [ ] Package manager access to install `@amplitude/*` packages (or `amplitude-analytics` for Python).
 
+## MCP tools for taxonomy and validation
+
+Use these names. Do not call `search`, `get_event_properties`, `get_events`, `get_context`, or `query_dataset` — those leaf names are hidden or were never the public names.
+
+| Tool | Purpose |
+|------|---------|
+| `get_amplitude_context` | Discover org/projects; pass `projectId` for project settings |
+| `search_amp_data_taxonomy` | Semantic search for events, properties, and property values |
+| `search_amp_entities` | Find events in the tracking plan (`entityTypes: ["EVENT"]`) |
+| `manage_amp_events` | Hydrate known event names (`action: "get"`, `kind: "event"`, `eventTypes`) |
+| `get_properties` | Properties on an event (`propertyType: "event"`, `eventType`, `projectId`) |
+| `query_amplitude_data` | Confirm new events arrived after sending them |
+
 ## Step-by-Step Guide
 
 ### 1. Check the existing taxonomy first
 
 Before adding any tracking call, look at what the project already has:
 
-1. Use the MCP `search` and `get_event_properties` tools to list existing event names and property definitions.
+1. Call `get_amplitude_context` if the project is unknown. Then use `search_amp_data_taxonomy` (and `get_properties` for a known event) to list existing event names and property definitions.
 2. Match the established conventions exactly — casing, tense, and separator style (many teams use `Noun Verbed`, e.g. `Song Played`; others use snake_case).
 3. Reuse existing events and properties when the new code path is semantically the same action. Only mint a new event name for a genuinely new action, and keep it consistent with the convention.
 
@@ -161,8 +174,8 @@ Add the plugin **before** calling `init`. Start with a conservative `sampleRate`
 
 1. Run the app and exercise the instrumented code path.
 2. In development, verify delivery locally: watch the network tab for `api2.amplitude.com` requests (or set the SDK `logLevel` to Debug), or check Amplitude's User Lookup / event stream in the web app.
-3. After events have had a few minutes to ingest, confirm via MCP: `query_dataset` (or `search` for the event) filtered to the new event name and a recent window.
-4. Check the received properties match the intended names and types — a typo'd property silently creates a new one.
+3. After events have had a few minutes to ingest, confirm via MCP: `query_amplitude_data` filtered to the new event name and a recent window (or `search_amp_data_taxonomy` / `manage_amp_events` to see if the event appeared in the plan).
+4. Check the received properties match the intended names and types — a typo'd property silently creates a new one (`get_properties` with `propertyType: "event"` and `eventType`).
 
 ## Common Workflows
 
@@ -186,7 +199,7 @@ Add the plugin **before** calling `init`. Start with a conservative `sampleRate`
 **Goal:** Find where the pipeline breaks.
 
 1. Confirm the tracking code actually executes (breakpoint/log at the call site).
-2. Confirm the SDK is initialized before the call, with the right API key for the right project (`get_context` via MCP shows which projects the user expects).
+2. Confirm the SDK is initialized before the call, with the right API key for the right project (`get_amplitude_context` via MCP shows which projects the user expects).
 3. Check the network: requests to `api2.amplitude.com` succeeding? Ad blockers and strict CSP commonly block client-side analytics — check the console, and consider a proxy if the team already uses one.
 4. Check for typos: event name queried vs. event name sent must match exactly.
 5. Remember ingestion latency: newly sent events can take a few minutes to appear in queries.
@@ -195,7 +208,7 @@ Add the plugin **before** calling `init`. Start with a conservative `sampleRate`
 **Goal:** A report on tracking health.
 
 1. Grep the codebase for all tracking calls; list event names and properties actually sent.
-2. Pull the project taxonomy via MCP and diff: events in code but unused in charts, near-duplicate names (`Sign Up` vs `signup`), properties with inconsistent types.
+2. Pull the project taxonomy via MCP (`search_amp_data_taxonomy`, `manage_amp_events`, `get_properties`) and diff: events in code but unused in charts, near-duplicate names (`Sign Up` vs `signup`), properties with inconsistent types.
 3. Report findings with concrete consolidation suggestions; let the user decide before renaming anything (renames break existing charts).
 
 ## Best Practices
