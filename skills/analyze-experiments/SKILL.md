@@ -4,7 +4,7 @@ description: "Analyze Amplitude experiments and feature flags through the Amplit
 license: "MIT"
 metadata:
   author: "Amplitude"
-  version: "1.0.0"
+  version: "1.1.0"
 ---
 
 # Analyze Amplitude Experiments and Feature Flags
@@ -27,26 +27,31 @@ This skill covers working with Amplitude Experiment through the Amplitude MCP se
 
 ## Available MCP Tools
 
+Use these names. Legacy leaf tools (`get_experiments`, `query_experiment`, `get_flags`, `get_deployments`, `search`) still exist in server code but are hidden when consolidation flags are on. Do not call them.
+
 | Tool | Purpose |
 |------|---------|
-| `search` | Find experiments (and related charts/dashboards) by name or topic |
-| `get_experiments` | Get detailed experiment information: hypothesis, variants, allocation, metrics, status |
-| `query_experiment` | Analyze experiment results and statistical significance |
-| `get_flags` | Retrieve feature flag configurations: key, variants, targeting rules, rollout state |
-| `get_context` | Access user and organization information (org, projects) |
-| `query_dataset` | Run supporting event-level queries (e.g. exposure or downstream-metric checks) |
+| `get_amplitude_context` | Org and accessible projects (omit `projectId`); project settings when `projectId` is set |
+| `search_amp_entities` | Find experiments and flags (`entityTypes: ["EXPERIMENT"]` or `["FLAG"]`) |
+| `use_amp_experiments` | Experiments. `action`: `get` (default), `analyze` (results / significance), `create`, `update` (metrics) |
+| `use_amp_flags` | Feature flags and deployments. `action`: `get` (default), `create`, `update` (rollout / variants), `list_deployments` |
+| `use_amplitude_metrics` | Resolve metric IDs/names (`action: "get_metrics"`) |
+| `query_amplitude_data` | Supporting event-level queries (e.g. exposure or downstream-metric checks) |
+| `search_amp_data_taxonomy` | Confirm exposure / metric event names before querying |
+
+`get_from_url` extracts experiment or flag IDs from Amplitude URLs.
 
 ## Step-by-Step Guide
 
 ### 1. Locate the experiment or flag
 
-- From a name or topic: call `search` with the user's phrasing (e.g. "homepage redesign", "checkout flow test").
-- From a flag key in code: call `get_flags` and match the key exactly. Flag keys in code are the stable join point between the repository and Amplitude.
+- From a name or topic: call `search_amp_entities` with the user's phrasing (e.g. "homepage redesign", "checkout flow test") and `entityTypes: ["EXPERIMENT"]` or `["FLAG"]`.
+- From a flag key in code: call `use_amp_flags` with `action: "get"` and `flagIds` containing the key exactly. Flag keys in code are the stable join point between the repository and Amplitude.
 - If several candidates match, list them with status (running / decided / rolled out) and ask which one.
 
 ### 2. Read the configuration before the results
 
-Call `get_experiments` for the chosen experiment and summarize:
+Call `use_amp_experiments` with `action: "get"` and `ids` for the chosen experiment and summarize:
 
 - **Hypothesis and primary metric** — what the experiment is trying to move.
 - **Variants and allocation** — including the control, and any mid-flight allocation changes.
@@ -55,26 +60,34 @@ Call `get_experiments` for the chosen experiment and summarize:
 
 This framing prevents the most common mistake: reporting a lift on a metric the experiment was never powered to detect.
 
+If metric IDs need names, resolve them with `use_amplitude_metrics` (`action: "get_metrics"`) or `search_amp_entities` (`entityTypes: ["METRIC"]` / `["CHART"]`). If names still cannot be found, report placeholders with IDs so the user can look them up in the Amplitude UI.
+
 ### 3. Query and interpret results
 
-Call `query_experiment` and report:
+Call `use_amp_experiments` with `action: "analyze"` and the experiment `id`. Omit `metricIds` unless the user asks for specific or secondary metrics (default is the primary/recommended metric).
+
+Report:
 
 1. **Primary metric first**: lift per variant vs. control, with confidence intervals when available.
 2. **Statistical significance, stated plainly**: "statistically significant" only when the analysis says so. If not significant, say the result is inconclusive — not "trending positive."
 3. **Sample size and runtime**: flag experiments that are early (days of data, small exposure counts) and warn against peeking decisions.
 4. **Secondary and guardrail metrics**: report regressions on guardrails even when the primary metric wins.
 
+Always reference the experiment by its Amplitude link.
+
 ### 4. Recommend, don't overreach
 
 When asked "should we ship it?", summarize the evidence (significance, lift size, guardrails, runtime) and give a recommendation with its caveats. Ship/no-ship is the team's call; your job is to make the statistics legible.
+
+Do not change allocations, targeting, or rollout percentages unless the user explicitly asks. Then use `use_amp_flags` `action: "update"` (experiments are flags for shell/rollout changes) and confirm before writing.
 
 ## Common Workflows
 
 ### Workflow: "What are the results of experiment X?"
 **Goal:** A decision-ready summary.
 
-1. `search` → identify the experiment; `get_experiments` for setup.
-2. `query_experiment` for results.
+1. `search_amp_entities` → identify the experiment; `use_amp_experiments` `action: "get"` for setup.
+2. `use_amp_experiments` `action: "analyze"` for results.
 3. Report: primary metric lift per variant, significance, exposure counts, runtime, guardrail status.
 4. Conclude with what the evidence supports and what is still uncertain.
 
@@ -82,23 +95,23 @@ When asked "should we ship it?", summarize the evidence (significance, lift size
 **Goal:** Connect code to configuration.
 
 1. Take the flag key from the code (e.g. `experiment.variant('new-onboarding-flow')`).
-2. `get_flags` → find the matching key; report variants, targeting rules, rollout percentage, and status.
-3. If the flag backs an experiment, follow with `get_experiments` / `query_experiment` for its results.
+2. `use_amp_flags` `action: "get"` with that key in `flagIds`; report variants, targeting rules, rollout percentage, and status.
+3. If the flag backs an experiment, follow with `use_amp_experiments` `get` / `analyze` for its results.
 4. Show which code paths correspond to which variants.
 
 ### Workflow: Flag cleanup audit
 **Goal:** Find flags that can be removed from code.
 
 1. Collect flag keys referenced in the codebase (grep for the project's variant-lookup calls).
-2. `get_flags` → check each key's status.
+2. `use_amp_flags` `action: "get"` → check each key's status.
 3. Flags that are decided/rolled out to 100% (or fully off with a concluded experiment) are cleanup candidates.
 4. For each candidate, identify the winning code path to keep and the dead branches to delete. Propose the edits; let the user confirm before changing rollout state or deleting code.
 
 ### Workflow: Verify experiment exposure is firing
 **Goal:** Confirm an experiment is actually collecting data.
 
-1. `get_experiments` → confirm the experiment is running and note its exposure event.
-2. `query_dataset` → check exposure event volume over the experiment window, grouped by variant.
+1. `use_amp_experiments` `action: "get"` → confirm the experiment is running and note its exposure event.
+2. `query_amplitude_data` → check exposure event volume over the experiment window, grouped by variant.
 3. Empty or heavily skewed variant volumes indicate an instrumentation or targeting problem — check the SDK integration (see [instrument-analytics](../instrument-analytics/SKILL.md)).
 
 ## Best Practices
@@ -108,20 +121,23 @@ When asked "should we ship it?", summarize the evidence (significance, lift size
 - **Distinguish flags from experiments.** A rollout flag has no control group; don't present rollout metrics as causal experiment results.
 - **Use exact flag keys.** Keys are case- and punctuation-sensitive; match what's in code verbatim.
 - **Flag early peeking.** If the experiment hasn't reached its planned duration or sample, say so before interpreting results.
-- **Keep write operations out of scope.** This power reads experiment state; changing allocations, targeting, or rollout percentages should happen in the Amplitude web app by a human.
 
 ## Troubleshooting
 
 ### Issue: Experiment or flag not found
 **Cause:** Wrong project, different key than the code suggests, or no view permission.
 **Solution:**
-1. `get_context` → confirm the org/project.
-2. `search` with alternative names; flags are sometimes named differently from their keys.
+1. `get_amplitude_context` → confirm the org/project.
+2. `search_amp_entities` with alternative names; flags are sometimes named differently from their keys.
 3. Have the user confirm they can see the experiment in the Amplitude web app.
+
+### Issue: Tool not found (`get_experiments`, `query_experiment`, `get_flags`)
+**Cause:** Leaf names are hidden under `mcp-consolidate-flags-experiments`. Use `use_amp_experiments` and `use_amp_flags`.
+**Solution:** Retry with those wrappers (`analyze` replaces `query_experiment`).
 
 ### Issue: Results look different from the Amplitude UI
 **Cause:** Different analysis window or metric variant.
-**Solution:** Compare the queried window and metric against the experiment's configured analysis settings from `get_experiments`, and re-run to match.
+**Solution:** Compare the queried window and metric against the experiment's configured analysis settings from `use_amp_experiments` `get`, and re-run `analyze` to match.
 
 ### Issue: No exposure data
 **Cause:** SDK not sending exposure events, targeting excludes everyone, or the experiment just started.
